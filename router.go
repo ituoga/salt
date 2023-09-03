@@ -21,7 +21,8 @@ type Router struct {
 // NewRouter creates a new router
 func NewRouter() *Router {
 	return &Router{
-		routes: make(map[string]HandlerFunc),
+		routes:      make(map[string]HandlerFunc),
+		eventRoutes: make(map[string]HandlerFunc),
 	}
 }
 
@@ -48,6 +49,13 @@ func (r *Router) HandleEvent(topic string, handler HandlerFunc) {
 // Dispatch dispatches the message to the right handler
 func (r *Router) Dispatch(topic string, ctx *Context) {
 	if handler, exists := r.routes[topic]; exists {
+		handler(ctx)
+	}
+}
+
+// Dispatch dispatches the message to the right handler
+func (r *Router) DispatchEvent(topic string, ctx *Context) {
+	if handler, exists := r.eventRoutes[topic]; exists {
 		handler(ctx)
 	}
 }
@@ -88,7 +96,7 @@ func (r *Router) Run(natsURL string) error {
 				return
 			}
 			ctx := &Context{nc: nc, ncMsg: msg, req: systemMessage, rbac: r.rbac, router: r}
-			r.Dispatch(msg.Subject, ctx)
+			r.DispatchEvent(msg.Subject, ctx)
 		})
 	}
 	return nil
