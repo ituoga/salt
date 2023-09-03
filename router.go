@@ -11,10 +11,11 @@ import (
 
 // Router struct
 type Router struct {
-	routes   map[string]HandlerFunc
-	prefix   string
-	rbac     RBACContext
-	resource string
+	routes      map[string]HandlerFunc
+	eventRoutes map[string]HandlerFunc
+	prefix      string
+	rbac        RBACContext
+	resource    string
 }
 
 // NewRouter creates a new router
@@ -39,6 +40,11 @@ func (r *Router) Handle(topic string, handler HandlerFunc) {
 	r.routes[fullTopic] = rbac(handler)
 }
 
+func (r *Router) HandleEvent(topic string, handler HandlerFunc) {
+	fullTopic := strings.TrimPrefix(r.prefix+"."+strings.TrimPrefix(topic, "."), ".")
+	r.eventRoutes[fullTopic] = handler
+}
+
 // Dispatch dispatches the message to the right handler
 func (r *Router) Dispatch(topic string, ctx *Context) {
 	if handler, exists := r.routes[topic]; exists {
@@ -60,6 +66,20 @@ func (r *Router) Run(natsURL string) error {
 
 	for topic, _ := range r.routes {
 		nc.QueueSubscribe(topic, topic, func(msg *nats.Msg) {
+			var systemMessage SystemMessage
+			err := json.Unmarshal(msg.Data, &systemMessage)
+			if err != nil {
+				log.Printf("Error parsing system message: %v", err)
+				nc.Publish(msg.Reply, []byte(NewSystemResponse(http.StatusInternalServerError, "Invalid json").ToJSON()))
+				return
+			}
+			ctx := &Context{nc: nc, ncMsg: msg, req: systemMessage, rbac: r.rbac, router: r}
+			r.Dispatch(msg.Subject, ctx)
+		})
+	}
+
+	for topic, _ := range r.eventRoutes {
+		nc.Subscribe(topic, func(msg *nats.Msg) {
 			var systemMessage SystemMessage
 			err := json.Unmarshal(msg.Data, &systemMessage)
 			if err != nil {
